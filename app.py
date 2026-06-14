@@ -108,7 +108,18 @@ if not os.path.exists("artifacts/cluster_scores.json"):
 def load_artifacts():
     metrics_df = pd.read_csv("artifacts/supervised_metrics.csv")
     best_name = joblib.load("artifacts/best_model_name.joblib")
-    best_pipe = joblib.load(f"artifacts/{best_name.replace(' ', '_')}_pipeline.joblib")
+
+    # Load all trained models
+    model_files = {
+        "Logistic Regression": "artifacts/Logistic_Regression_pipeline.joblib",
+        "Decision Tree": "artifacts/Decision_Tree_pipeline.joblib",
+        "Random Forest": "artifacts/Random_Forest_pipeline.joblib",
+        "K-Nearest Neighbors": "artifacts/K-Nearest_Neighbors_pipeline.joblib",
+        "Naive Bayes": "artifacts/Naive_Bayes_pipeline.joblib"
+    }
+    models = {name: joblib.load(path) for name, path in model_files.items()}
+    best_pipe = models[best_name]
+
     cms = joblib.load("artifacts/confusion_matrices.joblib")
 
     with open("artifacts/cluster_scores.json") as f:
@@ -118,9 +129,9 @@ def load_artifacts():
     with open("artifacts/cluster_summaries.json") as f:
         summaries = json.load(f)
 
-    return metrics_df, best_name, best_pipe, cms, cluster_scores, labels_dict, X_pca, summaries
+    return metrics_df, best_name, best_pipe, models, cms, cluster_scores, labels_dict, X_pca, summaries
 
-metrics_df, best_name, best_pipe, cms, cluster_scores, labels_dict, X_pca, summaries = load_artifacts()
+metrics_df, best_name, best_pipe, models, cms, cluster_scores, labels_dict, X_pca, summaries = load_artifacts()
 
 # ------------------------------------------------------------------
 # Page: Home
@@ -128,6 +139,14 @@ metrics_df, best_name, best_pipe, cms, cluster_scores, labels_dict, X_pca, summa
 def home_page():
     st.header("🏠 Home - Churn Prediction")
     st.success(f"**Best supervised model selected:** {best_name}")
+
+    # Model selection dropdown
+    selected_model = st.selectbox(
+        "🤖 Select a Model for Prediction",
+        list(models.keys()),
+        index=list(models.keys()).index(best_name)
+    )
+    st.info(f"Currently using: **{selected_model}**")
 
     uploaded = st.file_uploader("Upload a CSV file with customer features", type=["csv"])
     if uploaded is not None:
@@ -137,10 +156,11 @@ def home_page():
 
         X = input_df.drop(["Churn", "customerID"], axis=1, errors="ignore")
 
-        # Predict
-        predictions = best_pipe.predict(X)
-        probabilities = best_pipe.predict_proba(X)
-        yes_idx = list(best_pipe.classes_).index("Yes")
+        # Predict using selected model
+        pipe = models[selected_model]
+        predictions = pipe.predict(X)
+        probabilities = pipe.predict_proba(X)
+        yes_idx = list(pipe.classes_).index("Yes")
 
         input_df["Churn Prediction"] = predictions
         input_df["Churn Probability"] = np.round(probabilities[:, yes_idx], 3)
@@ -165,6 +185,26 @@ def home_page():
         )
         st.plotly_chart(fig, use_container_width=True)
 
+        # Show selected model metrics
+        st.subheader(f"📊 {selected_model} Performance Metrics")
+        model_metrics = metrics_df[metrics_df["Model"] == selected_model].reset_index(drop=True)
+        st.dataframe(model_metrics, use_container_width=True)
+
+        # Show selected model confusion matrix
+        st.subheader(f"🔍 {selected_model} Confusion Matrix")
+        cm = cms[selected_model]
+        fig_cm = px.imshow(
+            cm,
+            text_auto=True,
+            x=["No", "Yes"],
+            y=["No", "Yes"],
+            labels=dict(x="Predicted", y="Actual"),
+            title=f"{selected_model} Confusion Matrix",
+            color_continuous_scale="Blues"
+        )
+        st.plotly_chart(fig_cm, use_container_width=True)
+
+        # Evaluate on uploaded data if true labels exist
         if "Churn" in input_df.columns:
             y_true = input_df["Churn"]
             acc = accuracy_score(y_true, predictions)
@@ -179,18 +219,6 @@ def home_page():
                 "Recall": round(rec, 4),
                 "F1-Score": round(f1, 4)
             })
-
-            cm = confusion_matrix(y_true, predictions, labels=["No", "Yes"])
-            fig_cm = px.imshow(
-                cm,
-                text_auto=True,
-                x=["No", "Yes"],
-                y=["No", "Yes"],
-                labels=dict(x="Predicted", y="Actual"),
-                title="Confusion Matrix",
-                color_continuous_scale="Blues"
-            )
-            st.plotly_chart(fig_cm, use_container_width=True)
 
         csv = input_df.to_csv(index=False).encode("utf-8")
         st.download_button("Download Predictions CSV", csv, "churn_predictions.csv", "text/csv")
