@@ -25,3 +25,10 @@ git clone https://github.com/yourusername/churn_app.git
 cd churn_app
 pip install -r requirements.txt
 streamlit run app.py
+
+
+## ✅ How to Run
+### Local:
+```bash
+pip install -r requirements.txt
+streamlit run app.py
